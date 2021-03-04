@@ -1,0 +1,18 @@
+body{
+    margin:0;
+}
+
+#root{
+    margin:0;
+}
+
+svg{
+    border:solid 1px;
+}
+
+circle.particle:hover{
+    stroke: red;
+    fill: white;
+    opacity: 1;
+    fill-opacity: 0.7;
+}

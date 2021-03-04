@@ -23,8 +23,17 @@ class Element{
         }else{
             let circle = document.createElementNS(svgNS, "circle");
             circle.setAttribute("r", radius); 
+            circle.setAttribute("fill", colors); 
             this.group.appendChild(circle);
         }
+
+        // Add layer to control style
+        let outline = document.createElementNS(svgNS, "circle");
+        outline.setAttribute("r", radius); 
+        outline.setAttribute("opacity", 0); 
+        outline.classList.add("particle");
+        this.group.appendChild(outline);
+
         svg.appendChild(this.group);
     }
 

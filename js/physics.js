@@ -8,134 +8,157 @@ class Particle{
         this.radius = radius;
         this.inertia = 2/5*mass*radius*radius;
     }
+
+    set ang(value){
+        this.angle = value % (2*Math.PI);
+    }
+
+    get ang(){
+        return this.angle;
+    }
 }
 
 
 class Physics{
-    constructor(width, height, coefFriction, coefRestitution){
+    constructor(width, height, coefFriction, coefRestitution, gravity){
         this.coefFriction = coefFriction;
         this.e = Math.sqrt(coefRestitution);
+        this.gravity = gravity;
         this.width = width;
         this.height = height;
+
+        this.time = 0
+        this.particleId = 0;
+        this.particles = {};
+        this.collisions = {};
+        this.collideWalls = {};
+
+        this.pq = new PriorityQueue((a,b) => (a.value>b.value));
     }
 
-    progress(state, deltaT){ 
-        let ids = Object.keys(state);
-        while(deltaT>0){
-            let collisionMatrix = this.getParticlesCollisionTimes(state, ids);
-            let collisionMatrixWall = this.getParticleWallCollisionTimes(state, ids);
-            let collideTime = Infinity;
-            
-            let collisionWall = [];
-            for(let i=0; i<ids.length; ++i){
-                for(let s=0; s<4; ++s){
-                    let t =collisionMatrixWall[i][s];
-                    if(t==collideTime){
-                        collisionWall.push([ids[i], s]);
-                    }
-                    if(t<collideTime){
-                        collideTime = t;
-                        collisionWall = [[ids[i], s]];
-                    }
-                }
-            }
-            let collisions = [];
-            for(let i=0; i<ids.length; ++i){
-                for(let j=0; j<i; ++j){
-                    let t = collisionMatrix[i][j];
-                    if(t==collideTime){
-                        collisions.push([ids[i], ids[j]]);
-                    }
-                    if(t<collideTime){
-                        collideTime = t;
-                        collisionWall = [];
-                        collisions = [[ids[i], ids[j]]];
-                    }
-                }
-            }
+    addParticle(pos, ang, vel, ang_vel, mass, radius){
+        let id = (this.particleId ++).toString();
+        this.particles[id] = 
+            new Particle(pos, ang, vel, ang_vel, mass, radius);
+        this.collisions[id] = {};
+        this.collideWalls[id] = [];
 
-            if(collideTime < deltaT){
-                this.progressFree(state, collideTime);
-
-                for(let c of collisionWall){
-                    this.collideWithWall(state, c[0], c[1])
-                }
-                for(let c of collisions){
-                    this.collide(state, c[0], c[1])
-                }
-                deltaT -= collideTime;
+        for(let s=0; s<4; ++s){
+            let node = new Node(0, {type:"wall", i:id, s:s});
+            this.pq.push(node);
+            this.collideWalls[id].push(node);
+        }
+        for(let j in this.particles){
+            if(id == j)continue;
+            let node = new Node(0, {type:"particle", i:id, j:j});
+            if(id < j){
+                this.collisions[id][j] = node;
             }else{
-                this.progressFree(state, deltaT);
-                deltaT = 0;
+                this.collisions[j][id] = node;
             }
+            this.pq.push(node);
+        }
+        this.updateCollisionTimes(id);
+        return id;
+    }
+    
+    updateCollisionTimes(id){
+        this.getParticleWallCollisionTime(id).forEach(
+            (t, i) => {
+                this.pq.changeValue(this.collideWalls[id][i], t);
+            }
+        )
+        for(let j in this.particles){
+            if(id == j)continue;
+            let node = (id<j)?this.collisions[id][j]:this.collisions[j][id];
+            this.pq.changeValue(node, this.getParticlesCollisionTime(id, j));
         }
     }
 
-    getParticleWallCollisionTimes(state, ids){
-        let matrix = [];
+    progress(deltaT){ 
+        let endTime = this.time + deltaT;
+        while(!this.pq.isEmpty() && this.pq.peek().value < endTime){
+            let node = this.pq.peek();
+            this.progressFree(node.value );
+            if(node.info.type == "wall"){
+                this.collideWithWall(node.info.i, node.info.s);
+                this.updateCollisionTimes(node.info.i);
+            }else{
+                let pi = this.particles[node.info.i];
+                let pj = this.particles[node.info.j];
+                this.collide(node.info.i, node.info.j);
+                this.updateCollisionTimes(node.info.i);
+                this.updateCollisionTimes(node.info.j);
+            }
+        }
+        this.progressFree(endTime);
+    }
 
-        for(let i=0; i<ids.length; ++i){
-            let p = state[ids[i]];
-            let x = p.pos[0], y =p.pos[1];
-            let vx= p.vel[0], vy=p.vel[1];
-            let r = p.radius;
-            let row = []; // top, down, left, right
 
-            row[0] = vy<0?-(y-r)/vy:Infinity;
-            row[1] = vy>0?(this.height-y-r)/vy:Infinity;
-            row[2] = vx<0?-(x-r)/vx:Infinity;
-            row[3] = vx>0?(this.width-x-r)/vx:Infinity;
+    getParticleWallCollisionTime(id){
+        let p = this.particles[id];
+        let x = p.pos[0], y =p.pos[1];
+        let vx= p.vel[0], vy=p.vel[1];
+        let r = p.radius;
+        let row = []; // top, down, left, right
+
+        row[0] = this.time + this._getCollideTime(y-r, -vy, this.gravity[1]);
+        row[1] = this.time + this._getCollideTime(this.height-y-r, vy, -this.gravity[1]);
+        row[2] = this.time + this._getCollideTime(x-r, -vx, -this.gravity[0]);
+        row[3] = this.time + this._getCollideTime(this.width-x-r, vx, this.gravity[0]);
             
-            matrix.push(row);
-        }
-        return matrix;
+        return row;
     }
 
-    getParticlesCollisionTimes(state, ids){
-        let matrix = [];
-
-        for(let i=0; i<ids.length; ++i){
-            let pi = state[ids[i]];
-            let row = []
-            for(let j=0; j<i; ++j){
-                let pj = state[ids[j]];
-                let x = pj.pos[0]-pi.pos[0], y =pj.pos[1]-pi.pos[1];
-                let vx= pj.vel[0]-pi.vel[0], vy=pj.vel[1]-pi.vel[1];
-                let r = pi.radius + pj.radius;
-                let v_square = vx*vx+vy*vy;
-                let v = Math.sqrt(v_square);
-                if(v == 0){
-                    row.push(Infinity);
-                    continue;
-                }
-                let minDis = Math.abs(x*vy-y*vx)/v;
-                if(minDis >= r){
-                    row.push(Infinity);
-                    continue;
-                }
-                let tMinDis = - (x*vx+y*vy)/v_square;
-                if(tMinDis<=0){
-                    row.push(Infinity);
-                    continue;
-                }
-                let t = tMinDis - Math.sqrt(r*r-minDis*minDis)/v;
-                row.push(t);
-            }
-            matrix.push(row);
+    _getCollideTime(dist, v, acc){
+        let D = v*v+2*acc*dist;
+        if(acc == 0){
+            return v>0?dist/v:Infinity;
         }
-        return matrix;
+        else if( D <= 0 || (acc<0 && v<=0)){
+            return Infinity
+        }
+        return (-v + Math.sqrt(D))/acc;
     }
 
-    progressFree(state, deltaT){
-        for(let p of Object.values(state)){
-            p.pos[0] += p.vel[0]*deltaT;
-            p.pos[1] += p.vel[1]*deltaT;
+    getParticlesCollisionTime(i, j){
+        let pi = this.particles[i];
+        let pj = this.particles[j];
+        let x = pj.pos[0]-pi.pos[0], y =pj.pos[1]-pi.pos[1];
+        let vx= pj.vel[0]-pi.vel[0], vy=pj.vel[1]-pi.vel[1];
+        let r = pi.radius + pj.radius;
+        let v_square = vx*vx+vy*vy;
+        let v = Math.sqrt(v_square);
+        if(v == 0){
+            return Infinity;
+        }
+        let minDis = Math.abs(x*vy-y*vx)/v;
+        if(minDis >= r){
+            return Infinity;
+        }
+        let tMinDis = - (x*vx+y*vy)/v_square;
+        if(tMinDis<=0){
+            return Infinity;
+        }
+        return this.time + Math.max(0, tMinDis - Math.sqrt(r*r-minDis*minDis)/v);
+    }
+
+    progressFree(time){
+        let deltaT = time - this.time ;
+        let deltaT2 = deltaT*deltaT/2;
+        if(deltaT==0)return;
+        for(let p of Object.values(this.particles)){
+            p.pos[0] += p.vel[0]*deltaT + this.gravity[0]*deltaT2;
+            p.pos[1] += p.vel[1]*deltaT - this.gravity[1]*deltaT2;
+            p.vel[0] += this.gravity[0] * deltaT;
+            p.vel[1] += -this.gravity[1] * deltaT;
             p.ang += p.ang_vel * deltaT;
         }
+        this.time = time;
     }
 
-    collide(state, i, j){ 
-        let pi = state[i], pj = state[j];
+    collide(i, j){ 
+        let pi = this.particles[i], pj = this.particles[j];
         let mi = pi.mass,
             vxi = pi.vel[0],
             vyi = pi.vel[1],
@@ -174,7 +197,7 @@ class Physics{
         pj.ang_vel += beta*rj/Ij;
     }
 
-    collideWithWall(state, i, side){
+    collideWithWall(i, side){
         let nx = undefined, ny = undefined;
         let tx = undefined, ty = undefined;
         switch(side){
@@ -203,7 +226,7 @@ class Physics{
                 ty = 1;
                 break;
         }
-        let p = state[i];
+        let p = this.particles[i];
         let m = p.mass,
             vx = p.vel[0],
             vy = p.vel[1],
