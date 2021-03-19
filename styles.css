@@ -39,7 +39,7 @@ circle.particle:hover{
     top:0;
     height:100%;
     width: 5px;
-    left:calc(100% - 2px);
+    left:calc(100% - 3px);
     cursor:ew-resize;
 }
 

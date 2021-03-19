@@ -79,13 +79,12 @@ class Physics{
         let endTime = this.time + deltaT;
         while(!this.pq.isEmpty() && this.pq.peek().value < endTime){
             let node = this.pq.peek();
+            //console.log(this.time, node.info.type, node.info.i, node.info.j, node.info.s);
             this.progressFree(node.value );
             if(node.info.type == "wall"){
                 this.collideWithWall(node.info.i, node.info.s);
                 this.updateCollisionTimes(node.info.i);
             }else{
-                let pi = this.particles[node.info.i];
-                let pj = this.particles[node.info.j];
                 this.collide(node.info.i, node.info.j);
                 this.updateCollisionTimes(node.info.i);
                 this.updateCollisionTimes(node.info.j);
